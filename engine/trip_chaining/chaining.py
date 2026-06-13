@@ -12,13 +12,11 @@ y para el último viaje del día se aplica **cierre de lazo**:
 
 Entrada: eventos de torniquete (tarjeta, timestamp, estación de ingreso).
 Salida: matriz OD NxN (N = número de estaciones), indexada por `topology.ESTACIONES`.
-
-NOTA (Entrega 1): este módulo es un stub. Devuelve una matriz de ceros con la forma correcta
-para que el bucle de control corra end-to-end. La reconstrucción real se implementa en Fase 1.
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterable
 from datetime import datetime
 from typing import NamedTuple
@@ -26,6 +24,9 @@ from typing import NamedTuple
 import numpy as np
 
 from engine.network import topology
+
+# Mínimo de viajes por tarjeta para poder inferir un destino encadenado.
+MIN_VIAJES = 2
 
 
 class EventoViaje(NamedTuple):
@@ -38,21 +39,43 @@ class EventoViaje(NamedTuple):
 
 def reconstruir_od(eventos: Iterable[EventoViaje]) -> np.ndarray:
     """
-    Reconstruye la matriz OD a partir de eventos de ingreso.
+    Reconstruye la matriz OD a partir de eventos de ingreso (cobro abierto, sin salidas).
 
-    Algoritmo (a implementar en Fase 1):
+    Algoritmo:
       1. Agrupar eventos por `tarjeta_id`.
       2. Ordenar cada grupo por `timestamp`.
-      3. destino(i) = origen(i+1); último viaje → cierre de lazo al primer origen del día.
-      4. Acumular cada par (origen, destino) en la celda OD[o][d].
+      3. destino(viaje_i) = origen(viaje_{i+1}).
+      4. Cierre de lazo: destino(último) = origen(primero) del día.
+      5. Acumular cada par (origen, destino) en OD[o][d].
+
+    Las tarjetas con menos de `MIN_VIAJES` ingresos se descartan: con un solo viaje no hay
+    "siguiente origen" ni lazo significativo, así que su destino es indeterminable.
 
     Returns:
-        np.ndarray de forma (N, N) con conteos OD. Stub: ceros.
+        np.ndarray de forma (N, N) con los conteos OD reconstruidos.
     """
     n = topology.N_ESTACIONES
     od = np.zeros((n, n), dtype=float)
 
-    # TODO(Fase 1): implementar el encadenamiento real y el cierre de lazo.
-    _ = list(eventos)  # consumir el iterable sin procesarlo todavía
+    # 1. Agrupar por tarjeta.
+    por_tarjeta: dict[str, list[EventoViaje]] = defaultdict(list)
+    for ev in eventos:
+        por_tarjeta[ev.tarjeta_id].append(ev)
+
+    for viajes in por_tarjeta.values():
+        if len(viajes) < MIN_VIAJES:
+            continue
+
+        # 2. Ordenar cronológicamente.
+        viajes.sort(key=lambda e: e.timestamp)
+
+        indices = [topology.INDICE_ESTACION[v.estacion_origen] for v in viajes]
+
+        # 3. Encadenamiento: destino(i) = origen(i+1).
+        for o, d in zip(indices, indices[1:]):
+            od[o, d] += 1.0
+
+        # 4. Cierre de lazo: destino(último) = origen(primero).
+        od[indices[-1], indices[0]] += 1.0
 
     return od

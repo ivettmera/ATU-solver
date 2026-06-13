@@ -21,6 +21,7 @@ import logging
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from redis.asyncio import Redis
 
 from app.api.v1.schemas import DispatchPlan as DispatchPlanAPI
 from app.core.config import Settings, get_settings
@@ -29,12 +30,34 @@ from app.ws.connection_manager import manager
 from engine.demand import baseline, state
 from engine.demand.residual import KalmanResidualEstimator
 from engine.optimizer import gating, milp
-from engine.trip_chaining.chaining import reconstruir_od
+from engine.trip_chaining.chaining import EventoViaje, reconstruir_od
 
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
 _estimador = KalmanResidualEstimator()
+
+
+async def _leer_eventos_recientes(redis: Redis, settings: Settings) -> list[EventoViaje]:
+    """
+    Lee las ventanas de telemetría vigentes en Redis y las convierte a EventoViaje.
+
+    Las ventanas son listas (`RPUSH` desde el endpoint de ingesta) que expiran solas, así que
+    solo quedan las recientes; se barren todas las que coincidan con el prefijo.
+    """
+    eventos: list[EventoViaje] = []
+    async for clave in redis.scan_iter(match=f"{settings.PREFIX_TELEMETRIA}:*"):
+        crudos = await redis.lrange(clave, 0, -1)
+        for crudo in crudos:
+            ev = json.loads(crudo)
+            eventos.append(
+                EventoViaje(
+                    tarjeta_id=ev["tarjeta_id"],
+                    timestamp=datetime.fromisoformat(ev["timestamp_entrada"]),
+                    estacion_origen=ev["estacion_origen"],
+                )
+            )
+    return eventos
 
 
 async def _ciclo_despacho() -> None:
@@ -43,9 +66,8 @@ async def _ciclo_despacho() -> None:
     redis = get_redis()
     ahora = datetime.now(timezone.utc)
 
-    # 1. Telemetría de la ventana actual (stub: aún no se decodifican los eventos).
-    #    En Fase 1 se leerá y parseará la lista de eventos para el trip chaining.
-    eventos: list = []
+    # 1. Telemetría vigente en Redis → eventos de ingreso.
+    eventos = await _leer_eventos_recientes(redis, settings)
 
     # 2. Trip chaining → OD observada.
     od_observada = reconstruir_od(eventos)
@@ -81,8 +103,8 @@ async def _ciclo_despacho() -> None:
     await redis.set(settings.KEY_PLAN_ACTUAL, json.dumps(payload))
     await manager.broadcast_json(payload)
     logger.info(
-        "Ciclo de despacho: optimizado=%s norma=%.2f clientes=%d",
-        plan_engine.optimizado, estado.norma_delta, manager.total,
+        "Ciclo de despacho: eventos=%d optimizado=%s norma=%.2f clientes=%d",
+        len(eventos), plan_engine.optimizado, estado.norma_delta, manager.total,
     )
 
 

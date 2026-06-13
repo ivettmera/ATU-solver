@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from pathlib import Path
 
-from app.core.config import get_settings
-from app.core.redis_client import close_redis, init_redis
-from engine.demand import baseline
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.core.config import get_settings  # noqa: E402
+from app.core.redis_client import close_redis, init_redis  # noqa: E402
+from engine.demand import baseline  # noqa: E402
 
 
 async def main() -> None:

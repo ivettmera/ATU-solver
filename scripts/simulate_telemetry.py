@@ -12,44 +12,55 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import random
+import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 
-from engine.network import topology
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from engine.trip_chaining import synthetic  # noqa: E402
 
 
-def generar_lote(n: int) -> dict:
-    """Construye un TelemetryPayload con `n` eventos aleatorios."""
-    ahora = datetime.now(timezone.utc)
+def generar_lote(n_usuarios: int, semilla: int) -> dict:
+    """
+    Construye un TelemetryPayload con cadenas de viajes realistas.
+
+    Usa el generador sintético (mismas reglas que validan el trip chaining), de modo que la
+    OD reconstruida por el scheduler tenga estructura real y no ruido uniforme.
+    """
+    eventos_dom, _ = synthetic.generar_dia(n_usuarios=n_usuarios, semilla=semilla)
     eventos = [
         {
-            "tarjeta_id": f"TARJ-{random.randint(0, 9999):04d}",
-            "timestamp_entrada": ahora.isoformat(),
-            "estacion_origen": random.choice(topology.ESTACIONES),
+            "tarjeta_id": ev.tarjeta_id,
+            "timestamp_entrada": ev.timestamp.isoformat(),
+            "estacion_origen": ev.estacion_origen,
         }
-        for _ in range(n)
+        for ev in eventos_dom
     ]
-    return {"timestamp_envio": ahora.isoformat(), "eventos": eventos}
+    return {"timestamp_envio": datetime.now(timezone.utc).isoformat(), "eventos": eventos}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Simulador de telemetría MetroSmart")
     parser.add_argument("--url", default="http://localhost:8000")
     parser.add_argument("--intervalo", type=float, default=10.0, help="segundos entre lotes")
-    parser.add_argument("--eventos", type=int, default=200, help="eventos por lote")
+    parser.add_argument("--usuarios", type=int, default=400, help="tarjetas por lote")
     parser.add_argument("--una-vez", action="store_true", help="enviar un solo lote y salir")
     args = parser.parse_args()
 
     endpoint = f"{args.url}/api/v1/telemetry/ingress"
+    semilla = 0
     with httpx.Client(timeout=10.0) as client:
         while True:
-            lote = generar_lote(args.eventos)
+            lote = generar_lote(args.usuarios, semilla)
             resp = client.post(endpoint, json=lote)
             resp.raise_for_status()
-            print(f"[{datetime.now():%H:%M:%S}] enviados {args.eventos} eventos → {resp.json()}")
+            n = len(lote["eventos"])
+            print(f"[{datetime.now():%H:%M:%S}] enviados {n} eventos → {resp.json()}")
+            semilla += 1
             if args.una_vez:
                 break
             time.sleep(args.intervalo)

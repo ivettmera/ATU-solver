@@ -18,7 +18,7 @@ from engine.network import topology
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="MetroSmart — API de despacho inteligente",
+        title="ATU resolver — API de despacho inteligente",
         description=(
             "Despacho de buses en tiempo real para el Metropolitano de Lima. "
             "Reconstruye la matriz Origen-Destino por trip chaining, estima la demanda con "
