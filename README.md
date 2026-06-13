@@ -55,6 +55,53 @@ docker compose up --build
 - **Dashboard**: http://localhost:8000/  (visualización en vivo)
 - **Swagger (API docs)**: http://localhost:8000/docs
 
+> **Coexistencia con Metrohub**: si Metrohub ya corre en la misma máquina, ocupa el
+> puerto **8000** (su backend) y **6379** (Redis). En ese caso levanta ATU en **8001** y
+> reutiliza el Redis de Metrohub — no arranques otro. Sustituye `8000` por `8001` en las
+> URLs de arriba.
+
+## Apagar y volver a levantar
+
+### Apagar
+
+Detiene solo el proceso de la API de ATU (por puerto, para no tocar otros uvicorn):
+
+```bash
+pkill -f "uvicorn app.main:app.*8001"      # usa 8000 si lo levantaste en ese puerto
+```
+
+⚠️ **No** apagues el Redis ni un uvicorn que sea de **Metrohub** (su backend en :8000 y su
+`metrohub_redis` en :6379). La Mbase queda cacheada en Redis, así que apagar la API no la pierde.
+
+Para confirmar que quedó detenido:
+
+```bash
+ss -ltnp | grep ':8001' || echo "apagado"
+curl -s http://127.0.0.1:8001/health || echo "sin respuesta"
+```
+
+### Volver a levantar
+
+```bash
+cd "<ruta-del-proyecto>/ATU-solver"
+
+# 1) Redis arriba (de Metrohub o propio). Si no estuviera:
+docker start metrohub_redis        # o:  docker compose up -d redis
+
+# 2) (Solo si Redis se reinició y perdió la Mbase) re-sembrar:
+redis-cli KEYS 'mbase:*'                                       # ¿hay Mbase?
+.venv/bin/python scripts/seed_baseline.py --csv data/sintetico   # si no la hay
+
+# 3) Levantar la API (8001 para coexistir con Metrohub; 8000 si está libre)
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+```
+
+- El paso 2 **casi nunca hace falta**: si Redis no se reinició, la Mbase sigue cacheada.
+- Para que **no dependa de la terminal** (no se caiga al cerrarla), arráncalo con
+  `nohup ... &` o en una pestaña aparte.
+- Para un demo que reaccione rápido a la telemetría, antepón `INTERVALO_OPT_SEG=5` al
+  comando de uvicorn (por defecto recalcula cada 5 min).
+
 ## Dashboard
 
 Página única servida por la propia API (sin build ni dependencias externas). Muestra el estado
