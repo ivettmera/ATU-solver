@@ -1,4 +1,4 @@
-# MetroSmart — API de despacho inteligente de buses
+# ATU resolver — API de despacho inteligente de buses
 
 API que decide, en tiempo real, el despacho de buses en el corredor del **Metropolitano de
 Lima**. El sistema de cobro es abierto al ingreso (los torniquetes solo registran entradas),
