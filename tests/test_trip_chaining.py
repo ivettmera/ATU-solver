@@ -17,27 +17,27 @@ def _ev(tarjeta: str, hora: int, estacion: str) -> EventoViaje:
 
 
 def test_caso_manual_encadenamiento_y_cierre():
-    # Una tarjeta con dos ingresos: UNI (mañana) y Caqueta (tarde).
-    # Encadenamiento → destino(UNI)=Caqueta; cierre de lazo → destino(Caqueta)=UNI.
-    eventos = [_ev("A", 8, "UNI"), _ev("A", 18, "Caqueta")]
+    # Una tarjeta con dos ingresos: UNI (mañana) y Caquetá (tarde).
+    # Encadenamiento → destino(UNI)=Caquetá; cierre de lazo → destino(Caquetá)=UNI.
+    eventos = [_ev("A", 8, "UNI"), _ev("A", 18, "Caquetá")]
     od = reconstruir_od(eventos)
 
-    assert od[I["UNI"], I["Caqueta"]] == 1.0
-    assert od[I["Caqueta"], I["UNI"]] == 1.0
+    assert od[I["UNI"], I["Caquetá"]] == 1.0
+    assert od[I["Caquetá"], I["UNI"]] == 1.0
     assert od.sum() == 2.0  # exactamente dos pares OD
 
 
 def test_ordena_por_timestamp_aunque_lleguen_desordenados():
     # Mismos eventos en orden inverso de llegada: el resultado no debe cambiar.
-    eventos = [_ev("A", 18, "Caqueta"), _ev("A", 8, "UNI")]
+    eventos = [_ev("A", 18, "Caquetá"), _ev("A", 8, "UNI")]
     od = reconstruir_od(eventos)
-    assert od[I["UNI"], I["Caqueta"]] == 1.0
-    assert od[I["Caqueta"], I["UNI"]] == 1.0
+    assert od[I["UNI"], I["Caquetá"]] == 1.0
+    assert od[I["Caquetá"], I["UNI"]] == 1.0
 
 
 def test_descarta_tarjetas_con_un_solo_viaje():
     # Un único ingreso no permite inferir destino → no aporta a la OD.
-    od = reconstruir_od([_ev("solo", 9, "Naranjal")])
+    od = reconstruir_od([_ev("solo", 9, "Terminal Naranjal")])
     assert od.sum() == 0.0
 
 

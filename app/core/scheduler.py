@@ -61,6 +61,22 @@ async def _leer_eventos_recientes(redis: Redis, settings: Settings) -> list[Even
     return eventos
 
 
+async def _leer_incidencias(redis: Redis, settings: Settings) -> list[milp.IncidenciaOperativa]:
+    """Lee el hash de incidencias activas y las convierte a incidencias operativas del MILP."""
+    crudas = await redis.hgetall(settings.KEY_INCIDENCIAS)
+    incidencias: list[milp.IncidenciaOperativa] = []
+    for valor in crudas.values():
+        inc = json.loads(valor)
+        incidencias.append(
+            milp.IncidenciaOperativa(
+                estacion=inc["estacion_id"],
+                bloqueado=inc.get("bloqueado", False),
+                capacidad_reducida_pct=inc.get("capacidad_reducida_porcentaje", 0.0),
+            )
+        )
+    return incidencias
+
+
 async def _ciclo_despacho() -> None:
     """Una iteración del bucle de control (ver docstring del módulo)."""
     settings = get_settings()
@@ -79,12 +95,13 @@ async def _ciclo_despacho() -> None:
     delta = _estimador.estimate(od_observada, mbase)
     estado = state.construir_estado(mbase, delta)
 
-    # 4. Gating.
-    incidencias = await redis.exists(settings.KEY_INCIDENCIAS)
+    # 4. Gating (la presencia de incidencias fuerza el recálculo aunque ‖ΔM‖₂ ≤ ε).
+    incidencias = await _leer_incidencias(redis, settings)
     optimizar = gating.debe_optimizar(estado.norma_delta, settings.EPSILON, bool(incidencias))
 
     # 5. Plan: itinerario base o MILP.
     if optimizar:
+        max_despachos = max(1, settings.HORIZONTE_MIN // settings.HEADWAY_MIN)
         plan_engine = milp.resolver_despacho(
             ahora=ahora,
             m_hat=estado.m_hat,
@@ -92,8 +109,10 @@ async def _ciclo_despacho() -> None:
                 flota_total=settings.FLOTA_TOTAL,
                 conductores_disponibles=settings.CONDUCTORES_DISPONIBLES,
                 capacidad_bus=settings.CAPACIDAD_BUS,
+                max_despachos=max_despachos,
             ),
             norma_delta=estado.norma_delta,
+            incidencias=incidencias,
         )
     else:
         plan_engine = milp.itinerario_base(ahora, estado.norma_delta)

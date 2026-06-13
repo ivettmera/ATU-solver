@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     INTERVALO_OPT_SEG: int = 300   # cadencia del job de despacho (5 min)
     HORIZONTE_MIN: int = 60        # horizonte deslizante del MILP
     BLOQUE_MIN: int = 5            # granularidad temporal de la ventana
+    HEADWAY_MIN: int = 3           # intervalo mínimo entre salidas de un servicio
 
     # Flota / recursos finitos
     FLOTA_TOTAL: int = 120

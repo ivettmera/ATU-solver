@@ -61,6 +61,16 @@ pytest                                  # pruebas
 
 ## Estado del proyecto
 
-Entrega 1 (Fase 0): **esqueleto navegable + contratos**. Los endpoints responden con datos
-mock; la matemática real (trip chaining, Mbase+ΔM, MILP) se implementa en las fases siguientes.
-El plan completo está en el plan de desarrollo del equipo.
+Implementado y verificado end-to-end:
+
+- **Fase 0** — esqueleto navegable + contratos (REST/WS, Redis, scheduler de 5 min).
+- **Fase 1** — Trip Chaining real (reconstrucción OD + cierre de lazo) y generador de datos
+  sintéticos con destino ground-truth.
+- **Fase 2** — Mbase real (promedio OD histórico por tipo de día) y residuo ΔM(t) con Filtro
+  de Kalman.
+- **Fase 3** — Topología real del corredor troncal (45 estaciones, Chimpu Ocllo↔Matellini, hub
+  en Estación Central) y optimizador **MILP** (OR-Tools/CBC) con restricciones de
+  flota/conductores/headway y respuesta a incidencias.
+
+Pendiente: difusión proactiva por WebSocket conectada al ciclo (Fase 4), endpoint de
+incidencias afinando reruteo (Fase 5) y migración a datos reales (Fase 6).
