@@ -10,13 +10,17 @@ por lo que la estación de destino se reconstruye por software.
 
 1. **Trip Chaining** — reconstruye la matriz Origen-Destino (OD) por continuidad
    espaciotemporal: `destino(i) = origen(i+1)`, con cierre de lazo en el último viaje del día.
-2. **Estimación residual** — `M̂(t) = Mbase + ΔM(t)`. `Mbase` (OD esperada por tipo de día) se
-   precalcula offline y se cachea en Redis; `ΔM(t)` se estima en vivo con un **Filtro de Kalman**
-   sobre CPU. El observado es una ventana móvil, así que Mbase se prorratea a esa ventana para
-   comparar en la misma escala.
-3. **MILP + Gating** — cada ciclo se evalúa `‖ΔM(t)‖₂`. Si `≤ ε` y sin incidencias, se usa el
-   itinerario base (cómputo cero). Si `> ε` o hay incidencia, se ejecuta el solver MILP
-   (Google OR-Tools/CBC) bajo restricciones de flota/conductores/headway.
+2. **Estimación residual** — `M̂(t) = Mbase + ΔM(t)`. `Mbase` se precalcula offline y se cachea en
+   Redis **por tipo de día y por hora** (`mbase:intradia:*`, tensor `24×N×N`), de modo que la
+   expectativa de la ventana usa el patrón real de la hora (picos) en vez de un prorrateo uniforme;
+   `ΔM(t)` se estima en vivo con un **Filtro de Kalman** sobre CPU. Si no hay Mbase intradía sembrada
+   se cae al Mbase diario prorrateado (degradación elegante).
+3. **MILP + Gating** — cada ciclo se evalúa `‖ΔM(t)‖₂`. Si `≤ ε` y sin incidencias, se sirve el
+   **plan precalculado de la hora** desde una tabla por `(tipo_día, hora)` (`dispatch:tabla`, lookup
+   O(1)); el plan base ya no es un itinerario fijo sino el plan pico-consciente de esa hora. Si
+   `> ε` o hay incidencia, se ejecuta el solver MILP (Google OR-Tools/CBC) bajo restricciones de
+   flota/conductores/headway, con objetivo **minimax** (minimiza la peor cola por servicio;
+   configurable con `OBJETIVO_DESPACHO`). La tabla se precalcula offline en `seed_baseline.py`.
 
 ## Estructura
 
@@ -27,9 +31,11 @@ app/          Servicio FastAPI (REST + WebSocket), Redis, scheduler periódico
   ├─ ws/      ConnectionManager (difusión WebSocket)
   └─ static/  dashboard.html (visualización)
 engine/       Núcleo matemático puro (sin FastAPI): network/topology, trip_chaining,
-              demand (baseline+residual+state), optimizer (gating+milp), data_loader
-scripts/      Generadores de datos y seed de Mbase
+              demand (baseline+residual+state), optimizer (gating+milp), simulation (harness de
+              saturación/contingencia), data_loader
+scripts/      Generadores de datos y seed de Mbase (diaria + intradía)
 data/         raw/ (CSV reales por tarjeta) · sintetico/ (CSV de prueba) · processed/
+notebooks/    Cuadernos de exploración (demanda intradía, harness de contingencia)
 tests/        Pruebas unitarias y de smoke
 ```
 
@@ -135,7 +141,8 @@ Los CSV no se versionan (ver `.gitignore`); solo la estructura y la documentaci�
 
 El cargador (`engine/data_loader.py`) admite mapeo de columnas y resolución de nombres de
 estación (tolerante a tildes/mayúsculas, con alias), de modo que migrar a datos reales es solo
-apuntar el seed a la carpeta nueva:
+apuntar el seed a la carpeta nueva. Un mismo comando reconstruye y cachea **Mbase diaria + Mbase
+intradía + tabla de despacho** (ver «Migración a datos reales»):
 
 ```bash
 python scripts/seed_baseline.py --csv data/raw      # con datos reales
@@ -159,9 +166,44 @@ Implementado y verificado end-to-end:
 - **Fase 3** — Topología real (45 estaciones, Chimpu Ocllo↔Matellini, hub Estación Central) y
   optimizador **MILP** (OR-Tools/CBC) con flota/conductores/headway e incidencias.
 - **Fase 4** — Push WebSocket proactivo solo ante cambios de plan (+ send-on-connect).
-- **Fase 5** — Robustez: Mbase escalada a la ventana, degradación elegante sin telemetría e
-  incidencias con ciclo de vida (TTL + crear/listar/resolver).
+- **Fase 5** — Robustez: degradación elegante sin telemetría e incidencias con ciclo de vida
+  (TTL + crear/listar/resolver).
+- **Despacho pico-consciente** — Mbase **intradía** (`tipo_día × hora`, tensor `24×N×N`), **tabla de
+  despacho precalculada** por `(tipo_día, hora)` servida en O(1) en el caso base, y objetivo MILP
+  **minimax** (minimiza la peor cola por servicio). Exploración en `notebooks/01_*`.
+- **Harness de simulación** (`engine/simulation/`) — banco de pruebas de colas/saturación que
+  inyecta incidentes para validar que el plan base + contingencia evitan el colapso. Ver
+  `engine/simulation/README.md` y `notebooks/02_*`.
 - **Dashboard** + pipeline de carga desde CSV por tarjeta (listo para datos reales).
 
-Pendiente (**Fase 6**): migración a datos reales por tarjeta cuando estén disponibles
-(el pipeline ya está probado con datos sintéticos en el mismo formato).
+Pendiente: **migración a datos reales** por tarjeta cuando estén disponibles (ver abajo; el pipeline
+ya está probado con datos sintéticos en el mismo formato).
+
+## Migración a datos reales
+
+Toda la matemática (trip chaining → Mbase diaria/intradía → tabla de despacho → ΔM/MILP) es
+**agnóstica a la fuente**: con datos reales **solo cambia el origen de los CSV**. El cargador
+(`engine/data_loader.py`) ya resuelve nombres de estación tolerando tildes/mayúsculas y admite
+alias y mapeo de columnas, así que normalmente no hace falta tocar código.
+
+1. **Colocar los CSV reales** en `data/raw/` con las columnas `tarjeta_id`, `timestamp_entrada`
+   (ISO), `estacion_origen` (una fila por ingreso al torniquete; cobro abierto, sin salida). Ver
+   `data/README.md`.
+2. **Verificar el mapeo de estaciones** contra `engine/network/topology.py`. Si los nombres del CSV
+   difieren y la normalización no basta, pasar `alias_estaciones` / `mapeo_columnas` a
+   `cargar_eventos_dir` (o añadirlos en el seed).
+3. **Re-sembrar desde los datos reales** — reconstruye Mbase diaria + intradía + la tabla de
+   despacho y las cachea en Redis. Nada más cambia:
+   ```bash
+   .venv/bin/python scripts/seed_baseline.py --csv data/raw
+   ```
+4. **Recargar la app** (reinicio o próximo arranque): el `lifespan` carga la nueva Mbase y tabla.
+   Verificar en logs `Mbase cargada` y `Tabla de despacho precalculada cargada`.
+5. **Recalibrar parámetros** con la escala real (en `.env`): `EPSILON` (umbral de gating, depende de
+   la magnitud real de `‖ΔM‖₂`), `FLOTA_TOTAL`/`CONDUCTORES_DISPONIBLES`/`CAPACIDAD_BUS`, y, si el
+   muestreo es más/menos ruidoso, `q`/`r` del Kalman (`engine/demand/residual.py`).
+6. **(Opcional) Validar con el harness**: `PerfilDemanda.desde_mbase_intradia(tensor_real)` corre
+   escenarios de saturación/contingencia sobre la demanda real (`engine/simulation/README.md`).
+
+> El generador sintético (`scripts/generar_csv_sintetico.py`) deja de usarse como fuente; queda solo
+> para tests y demos. Su limitación conocida (un único pico de mañana) no afecta a los datos reales.

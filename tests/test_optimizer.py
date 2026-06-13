@@ -91,3 +91,32 @@ def test_bloqueo_total_del_corredor_no_despacha_buses_inutiles():
     plan = milp.resolver_despacho(AHORA, m, RES, 400.0, incidencias=inc)
     assert plan.optimizado is True
     assert _total_buses(plan) == 0
+
+
+# ── Objetivo minimax vs. suma ─────────────────────────────────────────────────────────
+def _peor_cola(plan, demanda: dict, cap_bus: int) -> float:
+    """Mayor demanda no servida entre los servicios, dado el plan (sin incidencias)."""
+    buses = {s.codigo: 0 for s in topology.SERVICIOS}
+    for d in plan.despachos:
+        buses[d.servicio] += d.num_buses
+    return max(max(0.0, demanda[c] - buses[c] * cap_bus) for c in demanda)
+
+
+def test_minimax_baja_la_peor_cola_frente_a_suma_con_flota_escasa():
+    # Demanda comparable entre rutas y flota insuficiente: hay que racionar.
+    m = np.zeros((N, N))
+    m[I["Los Incas"], I["22 de Agosto"]] = 500        # solo Regular
+    m[I["México"], I["Javier Prado"]] = 480           # solo Expreso A
+    m[I["Canadá"], I["Ricardo Palma"]] = 460          # solo Expreso B
+    demanda = milp.asignar_demanda_a_servicios(m)
+    assert demanda["REG"] == 500 and demanda["EXP_A"] == 480 and demanda["EXP_B"] == 460
+
+    escasa = milp.RestriccionesFlota(
+        flota_total=6, conductores_disponibles=6, capacidad_bus=160, max_despachos=20)
+
+    plan_suma = milp.resolver_despacho(AHORA, m, escasa, 0.0, objetivo="suma")
+    plan_mm = milp.resolver_despacho(AHORA, m, escasa, 0.0, objetivo="minimax")
+
+    # Misma flota gastada, pero el minimax reparte y deja una peor cola más baja.
+    assert _total_buses(plan_mm) <= 6 and _total_buses(plan_suma) <= 6
+    assert _peor_cola(plan_mm, demanda, 160) < _peor_cola(plan_suma, demanda, 160)

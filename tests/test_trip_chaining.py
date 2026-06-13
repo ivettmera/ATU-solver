@@ -6,7 +6,11 @@ import numpy as np
 
 from engine.network import topology
 from engine.trip_chaining import synthetic
-from engine.trip_chaining.chaining import EventoViaje, reconstruir_od
+from engine.trip_chaining.chaining import (
+    EventoViaje,
+    reconstruir_od,
+    reconstruir_od_por_hora,
+)
 
 I = topology.INDICE_ESTACION
 
@@ -59,3 +63,19 @@ def test_alta_exactitud_con_usuarios_que_no_cierran():
     # Acuerdo celda a celda (intersección / total) por encima del 85%.
     acuerdo = np.minimum(od_rec, od_real).sum() / od_real.sum()
     assert acuerdo >= 0.85
+
+
+# ── Reconstrucción intradía (por hora de abordaje) ──────────────────────────────────────
+def test_od_por_hora_suma_reproduce_la_od_diaria():
+    eventos, _ = synthetic.generar_dia(n_usuarios=400, semilla=5)
+    por_hora = reconstruir_od_por_hora(eventos)
+    assert por_hora.shape == (24, topology.N_ESTACIONES, topology.N_ESTACIONES)
+    assert np.array_equal(por_hora.sum(axis=0), reconstruir_od(eventos))
+
+
+def test_od_por_hora_ubica_el_par_en_la_hora_de_abordaje():
+    # Aborda en UNI a las 8 y en Caquetá a las 18: el primer par cuenta en la hora 8.
+    eventos = [_ev("A", 8, "UNI"), _ev("A", 18, "Caquetá")]
+    por_hora = reconstruir_od_por_hora(eventos)
+    assert por_hora[8, I["UNI"], I["Caquetá"]] == 1.0      # viaje de ida, abordaje 08h
+    assert por_hora[18, I["Caquetá"], I["UNI"]] == 1.0     # cierre de lazo, abordaje 18h

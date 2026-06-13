@@ -1,0 +1,5 @@
+# Dependencias SOLO para exploración en cuadernos (no entran a producción).
+# pandas/numpy/ortools ya están en requirements.txt.
+-r requirements.txt
+jupyter>=1.0
+matplotlib>=3.7

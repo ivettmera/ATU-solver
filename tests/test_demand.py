@@ -1,6 +1,6 @@
 """Pruebas de la Fase 2: Mbase (clasificación + promedio) y Filtro de Kalman."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import numpy as np
 
@@ -100,6 +100,41 @@ def test_escalar_a_ventana_prorratea_por_fraccion_de_dia():
 def test_escalar_a_ventana_dia_completo_es_identidad():
     diaria = np.arange(N * N, dtype=float).reshape(N, N)
     assert np.allclose(baseline.escalar_a_ventana(diaria, 1440), diaria)
+
+
+# ── Mbase intradía (24, N, N) ──────────────────────────────────────────────────────────
+def test_build_baseline_intradia_promedia_y_omite_vacios():
+    a = np.ones((24, N, N))
+    b = np.full((24, N, N), 3.0)
+    mbase = baseline.build_baseline_intradia({"laboral": [a, b], "feriado": []})
+    assert mbase["laboral"].shape == (24, N, N)
+    assert np.allclose(mbase["laboral"], 2.0)
+    assert "feriado" not in mbase
+
+
+def test_baseline_ventana_intradia_suma_las_horas_cubiertas():
+    # Tensor con 1.0 por celda en cada hora: una ventana de 120 min = 2 horas → 2.0 por celda.
+    tensor = np.ones((24, N, N))
+    ahora = datetime(2026, 6, 13, 8, 0, tzinfo=timezone.utc)  # ventana cubre 06:00–08:00
+    ventana = baseline.baseline_ventana_intradia(tensor, ahora, 120)
+    assert np.allclose(ventana, 2.0)
+
+
+def test_baseline_ventana_intradia_usa_el_patron_de_la_hora():
+    # La hora 7 carga 100; las demás 1. A las 08:00 con ventana 120 → cubre h6 (1) y h7 (100).
+    tensor = np.ones((24, N, N))
+    tensor[7] = 100.0
+    ahora = datetime(2026, 6, 13, 8, 0, tzinfo=timezone.utc)
+    ventana = baseline.baseline_ventana_intradia(tensor, ahora, 120)
+    assert np.allclose(ventana, 101.0)
+
+
+def test_construir_mbase_intradia_sintetico_estructura_y_niveles():
+    mbase = historico.construir_mbase_intradia_sintetico(dias_por_tipo=2, semilla=0)
+    assert set(mbase) == set(baseline.TIPOS_DIA)
+    for tensor in mbase.values():
+        assert tensor.shape == (24, N, N)
+    assert mbase["laboral"].sum() > mbase["feriado"].sum()
 
 
 # ── Estado combinado ────────────────────────────────────────────────────────────────────

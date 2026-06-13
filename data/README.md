@@ -5,7 +5,8 @@ solo se conservan la estructura de carpetas y esta documentación.
 
 ```
 data/
-├── raw/         # CSV originales por tarjeta (lo que subes tú, ya limpios)
+├── raw/         # CSV reales por tarjeta (lo que subes tú, ya limpios)
+├── sintetico/   # CSV sintéticos para probar el pipeline (scripts/generar_csv_sintetico.py)
 └── processed/   # artefactos generados (matrices OD, Mbase) — no subir a mano
 ```
 
@@ -21,8 +22,22 @@ solo necesita tres campos; nómbralos así o indícame el mapeo si difieren:
 | `estacion_origen`   | texto              | Estación de ingreso                          |
 
 Notas:
-- La **estación de origen** debe poder mapearse a `engine/network/topology.py` (45 estaciones).
-  Si los nombres del CSV difieren, el cargador de Fase 6 incluirá una tabla de equivalencias.
-- No hay estación de destino (cobro abierto al ingreso): se reconstruye por software.
+- La **estación de origen** debe poder mapearse a `engine/network/topology.py` (45 estaciones). El
+  cargador (`engine/data_loader.py`) ya normaliza tildes/mayúsculas y acepta `alias_estaciones`
+  para nombres que no casen.
+- No hay estación de destino (cobro abierto al ingreso): se reconstruye por software (trip chaining).
 - Un archivo por día o un archivo con varios días, cualquiera funciona; el cargador agrupa por
-  fecha y tipo de día para construir Mbase.
+  fecha y tipo de día.
+
+## Cómo se procesan
+
+`scripts/seed_baseline.py --csv data/raw` ejecuta todo el pipeline y cachea los artefactos en Redis:
+
+```
+CSV por tarjeta  →  data_loader  →  trip chaining (OD por día)  →  Mbase diaria + Mbase intradía
+                                                                →  tabla de despacho precalculada
+```
+
+No genera archivos en `processed/`: persiste directamente en Redis (`mbase:*`, `mbase:intradia:*`,
+`dispatch:tabla`). Para los pasos completos de migración a datos reales ver el **README raíz →
+«Migración a datos reales»**.

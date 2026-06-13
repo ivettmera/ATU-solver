@@ -26,7 +26,12 @@ from redis.asyncio import Redis
 
 from app.api.v1.schemas import DispatchPlan as DispatchPlanAPI
 from app.core.config import Settings, get_settings
-from app.core.mbase_cache import obtener_mbase
+from app.core import tabla_despacho
+from app.core.mbase_cache import (
+    hay_mbase_intradia,
+    obtener_mbase,
+    obtener_mbase_intradia,
+)
 from app.core.redis_client import get_redis
 from app.ws.connection_manager import manager
 from engine.demand import baseline, state
@@ -106,11 +111,20 @@ async def _ciclo_despacho() -> None:
     # 1. Telemetría vigente en Redis → eventos de ingreso.
     eventos = await _leer_eventos_recientes(redis, settings)
 
-    # 2-3. Demanda: Mbase del tipo de día, escalada a la ventana de comparación, + ΔM(t).
-    #      Si no hay telemetría (flujo caído o ventanas expiradas) se degrada con elegancia:
-    #      ΔM = 0, se opera sobre el itinerario histórico y se reinicia el filtro.
+    # 2-3. Demanda: Mbase del tipo de día, llevada a la escala de la ventana de comparación, + ΔM(t).
+    #      Se prefiere el Mbase intradía (patrón de la hora actual); si no se sembró, cae al
+    #      prorrateo uniforme del Mbase diario. Si no hay telemetría (flujo caído o ventanas
+    #      expiradas) se degrada con elegancia: ΔM = 0, se opera sobre el histórico y se reinicia
+    #      el filtro.
     tipo_dia = baseline.clasificar_dia(ahora)
-    mbase = baseline.escalar_a_ventana(obtener_mbase(tipo_dia), settings.VENTANA_TELEMETRIA_MIN)
+    if hay_mbase_intradia():
+        mbase = baseline.baseline_ventana_intradia(
+            obtener_mbase_intradia(tipo_dia), ahora, settings.VENTANA_TELEMETRIA_MIN
+        )
+    else:
+        mbase = baseline.escalar_a_ventana(
+            obtener_mbase(tipo_dia), settings.VENTANA_TELEMETRIA_MIN
+        )
 
     telemetria_ok = bool(eventos)
     if telemetria_ok:
@@ -139,9 +153,15 @@ async def _ciclo_despacho() -> None:
             ),
             norma_delta=estado.norma_delta,
             incidencias=incidencias,
+            objetivo=settings.OBJETIVO_DESPACHO,
         )
     else:
-        plan_engine = milp.itinerario_base(ahora, estado.norma_delta)
+        # Caso base: plan pico-consciente precalculado (lookup O(1)); si no se sembró la tabla,
+        # cae al itinerario fijo.
+        plan_engine = (
+            tabla_despacho.plan_para(tipo_dia, ahora.hour, ahora, estado.norma_delta)
+            or milp.itinerario_base(ahora, estado.norma_delta)
+        )
 
     plan_api = DispatchPlanAPI.desde_engine(plan_engine)
     payload = plan_api.model_dump(mode="json")

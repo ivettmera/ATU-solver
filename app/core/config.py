@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Gating
     EPSILON: float = 150.0
 
+    # Objetivo del despacho MILP: "minimax" (peor cola) | "suma" (demanda total no servida).
+    OBJETIVO_DESPACHO: str = "minimax"
+
     # Optimización / ventanas
     INTERVALO_OPT_SEG: int = 300   # cadencia del job de despacho (5 min)
     HORIZONTE_MIN: int = 60        # horizonte deslizante del MILP

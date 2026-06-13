@@ -44,6 +44,12 @@ from engine.optimizer.dispatch_plan import Despacho, DispatchPlan
 W_UNMET = 1.0
 W_OPER = 12.0
 
+# Objetivo por defecto del despacho.
+#   "minimax" — minimiza la PEOR cola por servicio (evita que una ruta colapse mientras otra va
+#               vacía). Es el régimen recomendado.
+#   "suma"    — minimiza la demanda total no servida (régimen histórico).
+OBJETIVO_DEFECTO = "minimax"
+
 
 @dataclass(frozen=True)
 class RestriccionesFlota:
@@ -143,9 +149,15 @@ def resolver_despacho(
     restricciones: RestriccionesFlota,
     norma_delta: float,
     incidencias: list[IncidenciaOperativa] | None = None,
+    objetivo: str = OBJETIVO_DEFECTO,
 ) -> DispatchPlan:
     """
     Resuelve el despacho óptimo con MILP (OR-Tools/CBC) bajo las restricciones dadas.
+
+    `objetivo` elige qué se minimiza:
+      - "minimax": la PEOR cola por servicio (reparte cobertura, evita que una ruta colapse
+        mientras otra viaja vacía) — recomendado.
+      - "suma": la demanda total no servida (régimen histórico).
 
     Devuelve el plan optimizado; si el solver no está disponible o el modelo es infactible,
     cae al itinerario base.
@@ -179,11 +191,18 @@ def resolver_despacho(
     # Recursos finitos: total de buses despachados ≤ min(flota, conductores).
     solver.Add(solver.Sum(list(n.values())) <= recursos)
 
-    # Objetivo.
-    solver.Minimize(
-        W_UNMET * solver.Sum(list(unmet.values()))
-        + W_OPER * solver.Sum(list(n.values()))
-    )
+    # Objetivo: minimax (peor cola) o suma (demanda total no servida). En ambos, el costo
+    # operativo W_OPER por bus evita sobre-despachar.
+    coste_oper = W_OPER * solver.Sum(list(n.values()))
+    if objetivo == "minimax":
+        # u_max acota la cola de cada servicio; se minimiza la peor. Se escala por el nº de
+        # servicios para que la presión de cobertura sea comparable a la del régimen "suma".
+        u_max = solver.NumVar(0, solver.infinity(), "u_max")
+        for s in topology.SERVICIOS:
+            solver.Add(u_max >= unmet[s.codigo])
+        solver.Minimize(W_UNMET * len(topology.SERVICIOS) * u_max + coste_oper)
+    else:
+        solver.Minimize(W_UNMET * solver.Sum(list(unmet.values())) + coste_oper)
 
     estado = solver.Solve()
     if estado not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):

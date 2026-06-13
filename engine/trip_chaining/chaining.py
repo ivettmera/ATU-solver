@@ -79,3 +79,35 @@ def reconstruir_od(eventos: Iterable[EventoViaje]) -> np.ndarray:
         od[indices[-1], indices[0]] += 1.0
 
     return od
+
+
+def reconstruir_od_por_hora(eventos: Iterable[EventoViaje]) -> np.ndarray:
+    """
+    Reconstruye la OD desagregada por **hora de abordaje**: tensor de forma (24, N, N).
+
+    Aplica la misma cadena que `reconstruir_od` (destino(i)=origen(i+1) + cierre de lazo), pero
+    acumula cada par (origen, destino) en la hora del *timestamp del evento de origen* —la hora en
+    que el pasajero aborda, que es cuando hace falta el bus—. Por construcción,
+    `reconstruir_od_por_hora(eventos).sum(axis=0)` reproduce exactamente `reconstruir_od(eventos)`.
+    """
+    n = topology.N_ESTACIONES
+    od = np.zeros((24, n, n), dtype=float)
+
+    por_tarjeta: dict[str, list[EventoViaje]] = defaultdict(list)
+    for ev in eventos:
+        por_tarjeta[ev.tarjeta_id].append(ev)
+
+    for viajes in por_tarjeta.values():
+        if len(viajes) < MIN_VIAJES:
+            continue
+        viajes.sort(key=lambda e: e.timestamp)
+        indices = [topology.INDICE_ESTACION[v.estacion_origen] for v in viajes]
+        horas = [v.timestamp.hour for v in viajes]
+
+        # Encadenamiento: destino(i)=origen(i+1), abordaje en la hora del evento i.
+        for o, d, h in zip(indices, indices[1:], horas):
+            od[h, o, d] += 1.0
+        # Cierre de lazo: abordaje en la hora del último evento.
+        od[horas[-1], indices[-1], indices[0]] += 1.0
+
+    return od
