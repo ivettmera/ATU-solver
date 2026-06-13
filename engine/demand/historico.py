@@ -11,11 +11,13 @@ día laboral y decreciente en fin de semana y feriados.
 
 from __future__ import annotations
 
+from collections import defaultdict
+
 import numpy as np
 
 from engine.demand import baseline
 from engine.trip_chaining import synthetic
-from engine.trip_chaining.chaining import reconstruir_od
+from engine.trip_chaining.chaining import EventoViaje, reconstruir_od
 
 # Usuarios (tarjetas) simulados por día según el tipo de día.
 NIVEL_DEMANDA: dict[str, int] = {
@@ -49,5 +51,25 @@ def construir_mbase_sintetico(
             eventos, _ = synthetic.generar_dia(n_usuarios=n_usuarios, semilla=contador)
             ods_por_tipo[tipo_dia].append(reconstruir_od(eventos))
             contador += 1
+
+    return baseline.build_baseline(ods_por_tipo)
+
+
+def construir_mbase_desde_eventos(eventos: list[EventoViaje]) -> dict[str, np.ndarray]:
+    """
+    Construye Mbase a partir de eventos reales/por-tarjeta (p.ej. cargados de CSV).
+
+    Agrupa los eventos por **fecha** (un día = una OD reconstruida, para no encadenar viajes
+    entre días distintos), clasifica cada día por tipo y promedia las OD por tipo de día.
+    Este es el camino que se usará con los datos reales: solo cambia la fuente de los eventos.
+    """
+    por_fecha: dict[object, list[EventoViaje]] = defaultdict(list)
+    for ev in eventos:
+        por_fecha[ev.timestamp.date()].append(ev)
+
+    ods_por_tipo: dict[str, list[np.ndarray]] = {tipo: [] for tipo in baseline.TIPOS_DIA}
+    for fecha, eventos_dia in por_fecha.items():
+        tipo_dia = baseline.clasificar_dia(fecha)
+        ods_por_tipo[tipo_dia].append(reconstruir_od(eventos_dia))
 
     return baseline.build_baseline(ods_por_tipo)
