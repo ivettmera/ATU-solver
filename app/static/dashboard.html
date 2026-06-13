@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ATU resolver — Dashboard</title>
+<style>
+  :root {
+    --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --txt:#e2e8f0;
+    --acc:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --line:#334155;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  header {
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+    padding:14px 22px; background:#0b1220; border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:10;
+  }
+  header h1 { font-size:1.1rem; margin:0; font-weight:600; }
+  header h1 small { color:var(--muted); font-weight:400; }
+  .ws { display:flex; align-items:center; gap:8px; font-size:.85rem; color:var(--muted); }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); transition:.3s; }
+  .dot.on { background:var(--ok); box-shadow:0 0 8px var(--ok); }
+  main { padding:22px; display:grid; gap:18px; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); max-width:1300px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .card h2 { margin:0 0 14px; font-size:.95rem; font-weight:600; color:var(--acc); letter-spacing:.3px; }
+  .estado-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .metric { background:#0b1220; border-radius:10px; padding:12px; }
+  .metric .label { font-size:.72rem; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+  .metric .value { font-size:1.6rem; font-weight:700; margin-top:4px; }
+  .badge { display:inline-block; padding:5px 12px; border-radius:999px; font-weight:700; font-size:.8rem; }
+  .badge.base { background:rgba(34,197,94,.15); color:var(--ok); border:1px solid var(--ok); }
+  .badge.opt  { background:rgba(245,158,11,.15); color:var(--warn); border:1px solid var(--warn); }
+  .bar-wrap { background:#0b1220; border-radius:8px; height:16px; overflow:hidden; margin-top:8px; }
+  .bar { height:100%; background:linear-gradient(90deg,var(--ok),var(--warn)); width:0; transition:width .4s; }
+  .bar.over { background:linear-gradient(90deg,var(--warn),var(--bad)); }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  th,td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:.72rem; text-transform:uppercase; }
+  .terminal-bars div.row { display:flex; align-items:center; gap:8px; margin:6px 0; font-size:.82rem; }
+  .terminal-bars .tb { flex:1; background:#0b1220; border-radius:6px; height:22px; position:relative; overflow:hidden; }
+  .terminal-bars .tb span { position:absolute; left:0; top:0; bottom:0; background:var(--acc); border-radius:6px; transition:width .4s; }
+  .terminal-bars .tb b { position:absolute; right:8px; top:0; line-height:22px; font-size:.78rem; color:#fff; }
+  .terminal-bars .name { width:130px; color:var(--muted); }
+  form { display:grid; gap:9px; }
+  label { font-size:.78rem; color:var(--muted); }
+  select,input,button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#0b1220; color:var(--txt); }
+  button { cursor:pointer; border-color:var(--acc); color:var(--acc); font-weight:600; transition:.2s; }
+  button:hover { background:var(--acc); color:#08111f; }
+  button.danger { border-color:var(--bad); color:var(--bad); padding:4px 9px; font-size:.75rem; }
+  button.danger:hover { background:var(--bad); color:#fff; }
+  .inc-item { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:.85rem; }
+  .inc-item .meta { color:var(--muted); font-size:.75rem; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  #log { list-style:none; margin:0; padding:0; max-height:240px; overflow:auto; font-size:.8rem; font-family:ui-monospace,monospace; }
+  #log li { padding:5px 0; border-bottom:1px solid var(--line); color:var(--muted); }
+  #log li b { color:var(--txt); }
+  .empty { color:var(--muted); font-size:.85rem; font-style:italic; }
+  .hint { font-size:.75rem; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚍 ATU resolver <small>· despacho del Metropolitano</small></h1>
+  <div class="ws"><span id="dot" class="dot"></span><span id="wsTxt">conectando…</span></div>
+</header>
+
+<main>
+  <!-- Estado -->
+  <section class="card">
+    <h2>Estado del sistema</h2>
+    <div class="estado-grid">
+      <div class="metric">
+        <div class="label">Régimen</div>
+        <div class="value"><span id="badge" class="badge base">—</span></div>
+      </div>
+      <div class="metric">
+        <div class="label">Buses despachados</div>
+        <div class="value" id="totalBuses">—</div>
+      </div>
+    </div>
+    <div class="metric" style="margin-top:14px;">
+      <div class="label">Anomalía ‖ΔM‖₂ vs umbral ε (<span id="eps">—</span>)</div>
+      <div class="value" id="norma" style="font-size:1.2rem;">—</div>
+      <div class="bar-wrap"><div id="normaBar" class="bar"></div></div>
+    </div>
+    <div class="hint">Última actualización: <span id="calc">—</span></div>
+  </section>
+
+  <!-- Plan -->
+  <section class="card">
+    <h2>Plan de despacho · buses por terminal</h2>
+    <div id="terminalBars" class="terminal-bars"></div>
+    <table style="margin-top:14px;">
+      <thead><tr><th>Servicio</th><th>Terminal</th><th>Buses</th><th>Motivo</th></tr></thead>
+      <tbody id="planBody"><tr><td colspan="4" class="empty">Sin plan todavía…</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Incidencias -->
+  <section class="card">
+    <h2>Incidencias activas</h2>
+    <div id="incList"><div class="empty">Sin incidencias.</div></div>
+    <form id="incForm" style="margin-top:14px;">
+      <label>Estación</label>
+      <select id="incEstacion"></select>
+      <div class="row2">
+        <div><label>Tipo</label>
+          <select id="incTipo">
+            <option>BLOQUEO</option><option>ACCIDENTE</option><option>ANDEN_COLAPSADO</option>
+          </select>
+        </div>
+        <div><label>Severidad</label>
+          <select id="incSev"><option>ALTA</option><option>MEDIA</option><option>BAJA</option></select>
+        </div>
+      </div>
+      <label>Capacidad reducida: <span id="capVal">50</span>%</label>
+      <input id="incCap" type="range" min="0" max="100" value="50" />
+      <label><input id="incBloq" type="checkbox" style="width:auto"> Bloqueo total</label>
+      <button type="submit">Registrar incidencia</button>
+    </form>
+  </section>
+
+  <!-- Simular -->
+  <section class="card">
+    <h2>Simular demanda</h2>
+    <p class="hint">Inyecta viajes sintéticos por torniquete para ver reaccionar al optimizador.</p>
+    <form id="simForm">
+      <label>Tarjetas (viajes ×2): <span id="simVal">400</span></label>
+      <input id="simN" type="range" min="20" max="2000" step="20" value="400" />
+      <button type="submit">Inyectar telemetría</button>
+    </form>
+    <div class="hint" id="simMsg"></div>
+  </section>
+
+  <!-- Log -->
+  <section class="card">
+    <h2>Actividad en vivo</h2>
+    <ul id="log"><li class="empty">Esperando eventos…</li></ul>
+  </section>
+</main>
+
+<script>
+const API = "/api/v1";
+let EPS = 150, ESTACIONES = [];
+
+const $ = (id) => document.getElementById(id);
+function log(msg) {
+  const ul = $("log");
+  if (ul.querySelector(".empty")) ul.innerHTML = "";
+  const li = document.createElement("li");
+  const t = new Date().toLocaleTimeString();
+  li.innerHTML = `<b>${t}</b> · ${msg}`;
+  ul.prepend(li);
+  while (ul.children.length > 40) ul.removeChild(ul.lastChild);
+}
+
+async function loadConfig() {
+  const c = await (await fetch(`${API}/red/config`)).json();
+  EPS = c.epsilon; $("eps").textContent = EPS;
+}
+async function loadEstaciones() {
+  const d = await (await fetch(`${API}/red/estaciones`)).json();
+  ESTACIONES = d.estaciones;
+  $("incEstacion").innerHTML = ESTACIONES.map(e => `<option>${e}</option>`).join("");
+}
+
+function renderPlan(plan) {
+  $("badge").textContent = plan.optimizado ? "OPTIMIZADO" : "BASE";
+  $("badge").className = "badge " + (plan.optimizado ? "opt" : "base");
+  const total = plan.recomendaciones.reduce((s, r) => s + r.num_buses, 0);
+  $("totalBuses").textContent = total;
+  $("norma").textContent = plan.norma_delta.toFixed(1);
+  const pct = Math.min(100, (plan.norma_delta / EPS) * 100);
+  const bar = $("normaBar");
+  bar.style.width = pct + "%";
+  bar.className = "bar" + (plan.norma_delta >= EPS ? " over" : "");
+  $("calc").textContent = new Date(plan.calculado_en).toLocaleString();
+
+  // tabla
+  const body = $("planBody");
+  const conBuses = plan.recomendaciones.filter(r => r.num_buses > 0);
+  body.innerHTML = conBuses.length
+    ? conBuses.map(r => `<tr><td>${r.servicio}</td><td>${r.terminal_salida}</td><td>${r.num_buses}</td><td>${r.motivo}</td></tr>`).join("")
+    : `<tr><td colspan="4" class="empty">Sin despachos.</td></tr>`;
+
+  // barras por terminal
+  const porTerminal = {};
+  for (const r of plan.recomendaciones) porTerminal[r.terminal_salida] = (porTerminal[r.terminal_salida] || 0) + r.num_buses;
+  const max = Math.max(1, ...Object.values(porTerminal));
+  $("terminalBars").innerHTML = Object.entries(porTerminal).map(([t, n]) =>
+    `<div class="row"><span class="name">${t}</span><div class="tb"><span style="width:${(n/max)*100}%"></span><b>${n}</b></div></div>`
+  ).join("") || `<div class="empty">—</div>`;
+}
+
+async function loadPlan() {
+  try { renderPlan(await (await fetch(`${API}/dispatch/recommendations`)).json()); }
+  catch (e) { /* aún sin plan */ }
+}
+
+async function loadIncidencias() {
+  const incs = await (await fetch(`${API}/incidents`)).json();
+  const cont = $("incList");
+  if (!incs.length) { cont.innerHTML = `<div class="empty">Sin incidencias.</div>`; return; }
+  cont.innerHTML = incs.map(i => `
+    <div class="inc-item">
+      <div><b>${i.estacion_id}</b><div class="meta">${i.tipo} · ${i.severidad}${i.bloqueado ? " · BLOQUEADO" : ` · -${i.capacidad_reducida_porcentaje}%`}</div></div>
+      <button class="danger" onclick="resolver('${i.estacion_id.replace(/'/g, "\\'")}')">Resolver</button>
+    </div>`).join("");
+}
+
+async function resolver(est) {
+  await fetch(`${API}/incidents/${encodeURIComponent(est)}`, { method: "DELETE" });
+  log(`Incidencia resuelta: <b>${est}</b>`);
+  loadIncidencias();
+}
+
+// WebSocket en vivo
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}${API}/dispatch/stream`);
+  ws.onopen = () => { $("dot").classList.add("on"); $("wsTxt").textContent = "en vivo"; log("WebSocket conectado"); };
+  ws.onclose = () => { $("dot").classList.remove("on"); $("wsTxt").textContent = "desconectado"; setTimeout(connectWS, 2000); };
+  ws.onmessage = (ev) => {
+    const plan = JSON.parse(ev.data);
+    renderPlan(plan);
+    const total = plan.recomendaciones.reduce((s, r) => s + r.num_buses, 0);
+    log(`Plan nuevo → ${plan.optimizado ? "OPTIMIZADO" : "BASE"}, ${total} buses (‖ΔM‖=${plan.norma_delta.toFixed(0)})`);
+  };
+}
+
+// Formularios
+$("incCap").oninput = (e) => $("capVal").textContent = e.target.value;
+$("simN").oninput = (e) => $("simVal").textContent = e.target.value;
+
+$("incForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const body = {
+    estacion_id: $("incEstacion").value,
+    tipo: $("incTipo").value,
+    severidad: $("incSev").value,
+    bloqueado: $("incBloq").checked,
+    capacidad_reducida_porcentaje: parseFloat($("incCap").value),
+  };
+  await fetch(`${API}/incidents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  log(`Incidencia registrada: <b>${body.estacion_id}</b>`);
+  loadIncidencias();
+};
+
+$("simForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const n = parseInt($("simN").value);
+  if (!ESTACIONES.length) return;
+  const ahora = Date.now();
+  const eventos = [];
+  for (let i = 0; i < n; i++) {
+    const a = ESTACIONES[(Math.random() * ESTACIONES.length) | 0];
+    let b = ESTACIONES[(Math.random() * ESTACIONES.length) | 0];
+    if (b === a) b = ESTACIONES[(ESTACIONES.indexOf(a) + 1) % ESTACIONES.length];
+    const card = "WEB-" + i;
+    eventos.push({ tarjeta_id: card, timestamp_entrada: new Date(ahora - 3600000 + Math.random() * 1800000).toISOString(), estacion_origen: a });
+    eventos.push({ tarjeta_id: card, timestamp_entrada: new Date(ahora - 1200000 + Math.random() * 1000000).toISOString(), estacion_origen: b });
+  }
+  $("simMsg").textContent = "Enviando…";
+  const r = await fetch(`${API}/telemetry/ingress`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timestamp_envio: new Date().toISOString(), eventos }) });
+  const j = await r.json();
+  $("simMsg").textContent = `${j.eventos_recibidos} eventos enviados → ventana ${j.ventana}`;
+  log(`Telemetría inyectada: <b>${j.eventos_recibidos}</b> eventos`);
+};
+
+// init
+(async () => {
+  await loadConfig();
+  await loadEstaciones();
+  await loadPlan();
+  await loadIncidencias();
+  connectWS();
+  setInterval(loadPlan, 8000);
+  setInterval(loadIncidencias, 6000);
+})();
+</script>
+</body>
+</html>

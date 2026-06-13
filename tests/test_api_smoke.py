@@ -17,7 +17,17 @@ def test_openapi_expone_endpoints():
     assert "/api/v1/telemetry/ingress" in rutas
     assert "/api/v1/incidents" in rutas
     assert "/api/v1/dispatch/recommendations" in rutas
+    assert "/api/v1/red/estaciones" in rutas
+    assert "/api/v1/red/config" in rutas
     assert "/health" in rutas
+
+
+def test_dashboard_html_existe():
+    from pathlib import Path
+
+    import app.main as main_mod
+
+    assert (main_mod.STATIC_DIR / "dashboard.html").is_file()
 
 
 def test_schemas_registrados_en_openapi():

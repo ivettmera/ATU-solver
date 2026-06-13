@@ -8,12 +8,17 @@ externos: se comunican estrictamente vía JSON y WebSockets, sin conocer la mate
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, RedirectResponse
 
 from app.api.v1 import api_router
 from app.core.lifespan import lifespan
 from engine.network import topology
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app() -> FastAPI:
@@ -41,6 +46,14 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["Infra"])
     async def health() -> dict:
         return {"estado": "ok", "estaciones": topology.N_ESTACIONES}
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return RedirectResponse(url="/dashboard")
+
+    @app.get("/dashboard", include_in_schema=False)
+    async def dashboard():
+        return FileResponse(STATIC_DIR / "dashboard.html")
 
     return app
 
