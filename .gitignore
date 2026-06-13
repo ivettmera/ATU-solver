@@ -1,1 +1,28 @@
+# Claude
 CLAUDE.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos
+.venv/
+venv/
+env/
+.env
+
+# Datos / artefactos
+data/
+*.pkl
+*.npy
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+.ipynb_checkpoints/
