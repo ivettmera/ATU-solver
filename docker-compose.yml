@@ -1,7 +1,7 @@
 services:
   redis:
     image: redis:7-alpine
-    container_name: metrosmart-redis
+    container_name: atu-resolver-redis
     ports:
       - "6379:6379"
     volumes:
@@ -15,7 +15,7 @@ services:
 
   api:
     build: .
-    container_name: metrosmart-api
+    container_name: atu-resolver-api
     ports:
       - "8000:8000"
     environment:

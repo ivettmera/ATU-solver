@@ -1,5 +1,5 @@
 """
-Punto de entrada de la API MetroSmart.
+Punto de entrada de la API ATU resolver.
 
 Encapsula el procesamiento matemático (trip chaining, estimación residual y MILP) detrás de
 endpoints REST + WebSocket documentados con Pydantic. El frontend y las apps móviles son

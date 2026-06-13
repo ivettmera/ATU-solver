@@ -25,6 +25,7 @@ from redis.asyncio import Redis
 
 from app.api.v1.schemas import DispatchPlan as DispatchPlanAPI
 from app.core.config import Settings, get_settings
+from app.core.mbase_cache import obtener_mbase
 from app.core.redis_client import get_redis
 from app.ws.connection_manager import manager
 from engine.demand import baseline, state
@@ -72,8 +73,9 @@ async def _ciclo_despacho() -> None:
     # 2. Trip chaining → OD observada.
     od_observada = reconstruir_od(eventos)
 
-    # 3. Demanda: Mbase (stub vacío) + residuo ΔM(t).
-    mbase = baseline.matriz_vacia()
+    # 3. Demanda: Mbase del tipo de día actual + residuo ΔM(t) filtrado por Kalman.
+    tipo_dia = baseline.clasificar_dia(ahora)
+    mbase = obtener_mbase(tipo_dia)
     delta = _estimador.estimate(od_observada, mbase)
     estado = state.construir_estado(mbase, delta)
 
@@ -103,8 +105,8 @@ async def _ciclo_despacho() -> None:
     await redis.set(settings.KEY_PLAN_ACTUAL, json.dumps(payload))
     await manager.broadcast_json(payload)
     logger.info(
-        "Ciclo de despacho: eventos=%d optimizado=%s norma=%.2f clientes=%d",
-        len(eventos), plan_engine.optimizado, estado.norma_delta, manager.total,
+        "Ciclo de despacho: tipo_dia=%s eventos=%d optimizado=%s norma=%.2f clientes=%d",
+        tipo_dia, len(eventos), plan_engine.optimizado, estado.norma_delta, manager.total,
     )
 
 

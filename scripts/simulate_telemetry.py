@@ -44,7 +44,7 @@ def generar_lote(n_usuarios: int, semilla: int) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Simulador de telemetría MetroSmart")
+    parser = argparse.ArgumentParser(description="Simulador de telemetría ATU resolver")
     parser.add_argument("--url", default="http://localhost:8000")
     parser.add_argument("--intervalo", type=float, default=10.0, help="segundos entre lotes")
     parser.add_argument("--usuarios", type=int, default=400, help="tarjetas por lote")
