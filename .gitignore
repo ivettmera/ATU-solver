@@ -16,8 +16,12 @@ venv/
 env/
 .env
 
-# Datos / artefactos
-data/
+# Datos / artefactos (ignora los archivos de datos pero conserva la estructura y los docs)
+data/**/*.csv
+data/**/*.xls
+data/**/*.xlsx
+data/**/*.parquet
+data/**/*.json
 *.pkl
 *.npy
 
