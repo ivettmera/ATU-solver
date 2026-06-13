@@ -20,6 +20,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
+import numpy as np
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from redis.asyncio import Redis
 
@@ -79,10 +80,12 @@ async def _leer_eventos_recientes(redis: Redis, settings: Settings) -> list[Even
 
 
 async def _leer_incidencias(redis: Redis, settings: Settings) -> list[milp.IncidenciaOperativa]:
-    """Lee el hash de incidencias activas y las convierte a incidencias operativas del MILP."""
-    crudas = await redis.hgetall(settings.KEY_INCIDENCIAS)
+    """Lee las incidencias activas (claves con TTL) y las convierte a incidencias del MILP."""
     incidencias: list[milp.IncidenciaOperativa] = []
-    for valor in crudas.values():
+    async for clave in redis.scan_iter(match=f"{settings.PREFIX_INCIDENCIA}:*"):
+        valor = await redis.get(clave)
+        if valor is None:
+            continue
         inc = json.loads(valor)
         incidencias.append(
             milp.IncidenciaOperativa(
@@ -103,13 +106,19 @@ async def _ciclo_despacho() -> None:
     # 1. Telemetría vigente en Redis → eventos de ingreso.
     eventos = await _leer_eventos_recientes(redis, settings)
 
-    # 2. Trip chaining → OD observada.
-    od_observada = reconstruir_od(eventos)
-
-    # 3. Demanda: Mbase del tipo de día actual + residuo ΔM(t) filtrado por Kalman.
+    # 2-3. Demanda: Mbase del tipo de día, escalada a la ventana de comparación, + ΔM(t).
+    #      Si no hay telemetría (flujo caído o ventanas expiradas) se degrada con elegancia:
+    #      ΔM = 0, se opera sobre el itinerario histórico y se reinicia el filtro.
     tipo_dia = baseline.clasificar_dia(ahora)
-    mbase = obtener_mbase(tipo_dia)
-    delta = _estimador.estimate(od_observada, mbase)
+    mbase = baseline.escalar_a_ventana(obtener_mbase(tipo_dia), settings.VENTANA_TELEMETRIA_MIN)
+
+    telemetria_ok = bool(eventos)
+    if telemetria_ok:
+        od_observada = reconstruir_od(eventos)
+        delta = _estimador.estimate(od_observada, mbase)
+    else:
+        _estimador.reset()
+        delta = np.zeros_like(mbase)
     estado = state.construir_estado(mbase, delta)
 
     # 4. Gating (la presencia de incidencias fuerza el recálculo aunque ‖ΔM‖₂ ≤ ε).
@@ -150,8 +159,10 @@ async def _ciclo_despacho() -> None:
         _ultima_firma = firma
 
     logger.info(
-        "Ciclo de despacho: tipo_dia=%s eventos=%d optimizado=%s norma=%.2f cambio=%s clientes=%d",
-        tipo_dia, len(eventos), plan_engine.optimizado, estado.norma_delta, cambio, manager.total,
+        "Ciclo de despacho: tipo_dia=%s telemetria=%s eventos=%d optimizado=%s norma=%.2f "
+        "cambio=%s clientes=%d",
+        tipo_dia, telemetria_ok, len(eventos), plan_engine.optimizado, estado.norma_delta,
+        cambio, manager.total,
     )
 
 

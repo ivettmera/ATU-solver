@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     HORIZONTE_MIN: int = 60        # horizonte deslizante del MILP
     BLOQUE_MIN: int = 5            # granularidad temporal de la ventana
     HEADWAY_MIN: int = 3           # intervalo mínimo entre salidas de un servicio
+    VENTANA_TELEMETRIA_MIN: int = 120  # ventana móvil de telemetría = escala de comparación
+
+    # Incidencias
+    INCIDENCIA_TTL_SEG: int = 7200     # auto-resolución si no se refresca (2 h)
 
     # Flota / recursos finitos
     FLOTA_TOTAL: int = 120
@@ -37,7 +41,7 @@ class Settings(BaseSettings):
 
     # Claves de Redis (namespacing)
     KEY_PLAN_ACTUAL: str = "dispatch:plan_actual"
-    KEY_INCIDENCIAS: str = "incidents:activas"
+    PREFIX_INCIDENCIA: str = "incidents:activa"
     PREFIX_TELEMETRIA: str = "telemetry:ventana"
 
 

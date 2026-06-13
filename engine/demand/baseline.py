@@ -79,6 +79,21 @@ def matriz_desde_json(texto: str) -> np.ndarray:
     return np.asarray(json.loads(texto), dtype=float)
 
 
+def escalar_a_ventana(mbase_diaria: np.ndarray, ventana_min: int) -> np.ndarray:
+    """
+    Escala la Mbase diaria a la ventana de comparación del bucle online.
+
+    El observado en tiempo real es una ventana móvil (p.ej. las últimas 2 h de telemetría),
+    mientras que Mbase es la OD esperada del día completo. Para que el residuo ΔM = observado −
+    Mbase tenga sentido, ambos deben estar en la misma escala temporal: se escala Mbase por la
+    fracción de día que cubre la ventana.
+
+    Es un prorrateo uniforme (primera aproximación); la modulación por hora del día (picos) es
+    un refinamiento futuro con granularidad intradía.
+    """
+    return mbase_diaria * (ventana_min / 1440.0)
+
+
 def matriz_vacia() -> np.ndarray:
     """Matriz OD de ceros con la forma del corredor (fallback cuando no hay Mbase)."""
     n = topology.N_ESTACIONES

@@ -38,8 +38,8 @@ async def ingress(
         pipe = redis.pipeline()
         for ev in payload.eventos:
             pipe.rpush(clave, ev.model_dump_json())
-        # Las ventanas expiran solas; evita acumular telemetría vieja.
-        pipe.expire(clave, settings.HORIZONTE_MIN * 60 * 2)
+        # Las ventanas expiran solas; definen la ventana móvil de comparación con Mbase.
+        pipe.expire(clave, settings.VENTANA_TELEMETRIA_MIN * 60)
         await pipe.execute()
 
     return IngressResponse(eventos_recibidos=len(payload.eventos), ventana=clave)

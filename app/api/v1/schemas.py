@@ -70,6 +70,12 @@ class IncidentResponse(BaseModel):
     recalculo_forzado: bool = Field(
         ..., description="True si la incidencia dispara un recálculo MILP inmediato"
     )
+    expira_en_seg: int = Field(..., description="TTL tras el cual la incidencia se auto-resuelve")
+
+
+class IncidentResolvedResponse(BaseModel):
+    estado: Literal["resuelta", "inexistente"]
+    estacion_id: str
 
 
 # ── 3. Decisiones de despacho ────────────────────────────────────────────────────────

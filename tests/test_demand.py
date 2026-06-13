@@ -89,6 +89,19 @@ def test_kalman_reset():
     assert np.allclose(delta, 7.0)
 
 
+# ── Escala de Mbase a la ventana de comparación (Fase 5) ────────────────────────────────
+def test_escalar_a_ventana_prorratea_por_fraccion_de_dia():
+    diaria = np.full((N, N), 1440.0)  # 1440 "viajes" diarios por celda
+    # Una ventana de 120 min = 1/12 del día → 120 por celda.
+    ventana = baseline.escalar_a_ventana(diaria, 120)
+    assert np.allclose(ventana, 120.0)
+
+
+def test_escalar_a_ventana_dia_completo_es_identidad():
+    diaria = np.arange(N * N, dtype=float).reshape(N, N)
+    assert np.allclose(baseline.escalar_a_ventana(diaria, 1440), diaria)
+
+
 # ── Estado combinado ────────────────────────────────────────────────────────────────────
 def test_estado_m_hat_y_norma_con_mbase_real():
     mbase = np.full((N, N), 4.0)
