@@ -37,6 +37,23 @@ logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
 _estimador = KalmanResidualEstimator()
+# Firma del último plan difundido por WebSocket (para emitir solo ante cambios).
+_ultima_firma: tuple | None = None
+
+
+def _firma_plan(payload: dict) -> tuple:
+    """
+    Firma estable de la *decisión* de un plan, ignorando el timestamp.
+
+    Dos planes con las mismas recomendaciones y el mismo flag `optimizado` tienen la misma
+    firma aunque se hayan calculado en instantes distintos: así no se difunde un plan idéntico
+    cada 5 min.
+    """
+    recs = sorted(
+        (r["servicio"], r["terminal_salida"], r["num_buses"])
+        for r in payload["recomendaciones"]
+    )
+    return (payload["optimizado"], tuple(recs))
 
 
 async def _leer_eventos_recientes(redis: Redis, settings: Settings) -> list[EventoViaje]:
@@ -120,12 +137,21 @@ async def _ciclo_despacho() -> None:
     plan_api = DispatchPlanAPI.desde_engine(plan_engine)
     payload = plan_api.model_dump(mode="json")
 
-    # 6. Persistir y difundir.
+    # 6. Persistir siempre (el GET pull debe ver el plan fresco) pero difundir por WebSocket
+    #    SOLO si la decisión cambió respecto al último plan emitido: las apps cliente reciben
+    #    un empuje únicamente cuando hay algo nuevo que actuar (p.ej. al romperse el umbral ε).
+    global _ultima_firma
     await redis.set(settings.KEY_PLAN_ACTUAL, json.dumps(payload))
-    await manager.broadcast_json(payload)
+
+    firma = _firma_plan(payload)
+    cambio = firma != _ultima_firma
+    if cambio:
+        await manager.broadcast_json(payload)
+        _ultima_firma = firma
+
     logger.info(
-        "Ciclo de despacho: tipo_dia=%s eventos=%d optimizado=%s norma=%.2f clientes=%d",
-        tipo_dia, len(eventos), plan_engine.optimizado, estado.norma_delta, manager.total,
+        "Ciclo de despacho: tipo_dia=%s eventos=%d optimizado=%s norma=%.2f cambio=%s clientes=%d",
+        tipo_dia, len(eventos), plan_engine.optimizado, estado.norma_delta, cambio, manager.total,
     )
 
 

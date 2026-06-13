@@ -40,9 +40,20 @@ async def recomendaciones(
 
 @router.websocket("/stream")
 async def stream(websocket: WebSocket) -> None:
-    """Registra el cliente y le empuja cada nuevo plan hasta que se desconecta."""
+    """
+    Registra el cliente y le empuja cada nuevo plan hasta que se desconecta.
+
+    Al conectar le envía de inmediato el último plan cacheado, para que no tenga que esperar al
+    próximo cambio para conocer el estado actual del despacho.
+    """
     await manager.connect(websocket)
     try:
+        settings = get_settings()
+        redis = get_redis()
+        crudo = await redis.get(settings.KEY_PLAN_ACTUAL)
+        if crudo is not None:
+            await websocket.send_json(json.loads(crudo))
+
         while True:
             # No esperamos mensajes del cliente; mantenemos viva la conexión.
             await websocket.receive_text()
